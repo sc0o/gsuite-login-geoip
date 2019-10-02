@@ -1,5 +1,10 @@
 # gsuite-login-geoip
 
+## Fork
+This fork allows using GeoLite2 databases instead of discontinuited GeoLite Legacy databases. GeoLite2-City.mmdb can be downloaded here: https://dev.maxmind.com/geoip/geoip2/geolite2/.
+
+# Original
+
 ## About
 A recent engagement required me to analyze geographic login activity for a GSuite domain. While Google makes several reports available on the Admin dashboard, there was not one that provided thorough geographic detail. I made a thing that would take the default Login Activity Report, enhance it to include GeoIP data and plot all of the data points on an interactive map.
 

@@ -1,21 +1,15 @@
-import pygeoip
 import pandas as pd
-import re
-import numpy
 import argparse
 import plotly
-import time
 import progressbar
 import random
+import geoip2.database
 
 def main():
     # count records
     with open(infile) as f:
         rec_count = sum(1 for _ in f) - 1
-    print("Processing %i log entries... Please wait." % rec_count)
-
-    # regex for ipv4 identification
-    ipv4 = re.compile("([1-9][0-9]{0,2}\.[0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3})")
+    print('Processing {} log entries... Please wait.'.format(rec_count))
 
     df = pd.read_csv(
             infile,
@@ -24,55 +18,40 @@ def main():
             usecols=["Event Description", "IP Address", "Date"],
             parse_dates=["Date"]
             )
-
-    attributes = [
-        'latitude',
-        'longitude',
-        'city',
-        'region_code',
-        'metro_code',
-        'country_code3',
-        'country_name',
-        'postal_code',
-        'dma_code',
-        'area_code'
-        ]
-
+    reader = geoip2.database.Reader(GeoLiteCity) 
     i = 0
     totalrows = len(df.index)
-    print(totalrows)
     bar = progressbar.ProgressBar(max_value=totalrows).start()
     for idx,row in df.iterrows():
         i += 1
         bar.update(i)
         ipAddress = row["IP Address"]
-        if ipv4.match(ipAddress):
-            geodata = geoip_city(ipAddress)
+        try:
+            #geodata = geoip_city(ipAddress)
+            geodata = reader.city(ipAddress)
 
-            for attribute in attributes:
-                if geodata[attribute]:
-                    try:
-                        if numpy.isnan(geodata[attribute]):
-                            df.ix[idx, attribute] = "None"
-                        else:
-                            df.ix[idx, attribute] = geodata[attribute]
-                    except:
-                        pass
-                    df.ix[idx, attribute] = geodata[attribute]
-                else:
-                    df.ix[idx, attribute] = "None"
+        except (ValueError, geoip2.errors.AddressNotFoundError) as e:
+            print(e)
+            print('ip: {}'.format(ipAddress))
+            
+        except Exception as e:
+            print(e)
+            print('idx: {}'.format(idx))
+        
+        else:
+            df.loc[df.index[idx], 'latitude'] = geodata.location.latitude
+            df.loc[df.index[idx], 'longitude'] = geodata.location.longitude
+            df.loc[df.index[idx], 'city'] = geodata.city.name
+            df.loc[df.index[idx], 'region_code'] = geodata.subdivisions.most_specific.iso_code
+            df.loc[df.index[idx], 'country_name'] = geodata.country.name
+            df.loc[df.index[idx], 'postal_code'] = geodata.postal.code
 
-            long_desc = str(row["Date"]) + ' - ' + \
-                        row["Event Description"] + ' from ' + \
-                        df.ix[idx, "city"] + ', ' + \
-                        str(df.ix[idx, "region_code"]) + ', ' + \
-                        df.ix[idx, "country_name"]
+            long_desc = '{} - {} from {}, {}, {}'.format(row["Date"], row["Event Description"], df.loc[df.index[idx], "city"], df.loc[df.index[idx], "region_code"], df.loc[df.index[idx], "country_name"])
 
-            df.ix[idx, "long_desc"] = long_desc
+            df.loc[df.index[idx], "long_desc"] = long_desc
 
             for coord in ['latitude','longitude']:
-                df.ix[idx, coord] = scatterlatlong(df.ix[idx, coord])
-
+                df.loc[df.index[idx], coord] = scatterlatlong(df.loc[df.index[idx], coord])
 
     bar.finish()
     buildmap(df)
@@ -84,8 +63,8 @@ def scatterlatlong(coord):
     return random.uniform(coordmin,coordmax)
 
 def geoip_city(ipAddress):
-    gic = pygeoip.GeoIP(GeoLiteCity)
-    return gic.record_by_addr(ipAddress)
+    gic = geoip2.database.Reader(GeoLiteCity)
+    return gic.city(ipAddress)
 
 def getColor(eventType,returnType):
 
@@ -126,11 +105,11 @@ def buildmap(df):
         eventType = row["Event Description"]
         if eventType:
             for markerattr in ['color','opacity','size']:
-                df.ix[idx, markerattr] = getColor(eventType,markerattr)
+                df.loc[df.index[idx], markerattr] = getColor(eventType,markerattr)
         else: # shouldn't happen
-            df.ix[idx, "color"] = "Pink"
-            df.ix[idx, "opacity"] = 0.5
-            df.ix[idx, "size"] = 6
+            df.loc[df.index[idx], "color"] = "Pink"
+            df.loc[df.index[idx], "opacity"] = 0.5
+            df.loc[df.index[idx], "size"] = 6
 
     data = [ dict(
             type = 'scattergeo',
@@ -181,7 +160,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("inputfile", help="The CSV export from GSuite Login \
                                             Activity Report")
-    parser.add_argument("geocitydb", help="Path to the GeoLiteCity.dat \
+    parser.add_argument("geocitydb", help="Path to the GeoLite2-City.mmdb \
                                             database")
     parser.add_argument("--maptitle", help="Title to be displayed on the map")
     args = parser.parse_args()
